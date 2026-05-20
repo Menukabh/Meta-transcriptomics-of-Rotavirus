@@ -290,6 +290,7 @@ for bam in menuka_metatrans/results/bowties2_mapping_rota/*.sorted.bam;do
 done
 
 # Combine the counts of each Rota virus mapping to individual sample type in R
+# Find out the reads mapping to 
 ```
 
 ```bash
