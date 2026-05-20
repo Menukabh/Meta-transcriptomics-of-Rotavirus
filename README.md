@@ -99,7 +99,7 @@ sbatch menuka_metatrans/scripts/multiqc.sh \
 
 **3.** Kraken & Krakentools
 ```bash
-# Kraken - to classify and extract the viral reads
+# Kraken - to classify and extract the viral reads, it was run in standard db and viral reads were extracted
 ls -lh /fs/scratch/PAS0471/menuka/kraken_stnd_db/
 outfile=menuka_metatrans/results/kraken
 
@@ -290,7 +290,12 @@ for bam in menuka_metatrans/results/bowties2_mapping_rota/*.sorted.bam;do
 done
 
 # Combine the counts of each Rota virus mapping to individual sample type in R
-# Find out the reads mapping to 
+# Find out the reads mapping to host or pigs, Stephanie suggested that finding reads mapping to human would work
+menuka_metatrans/results/kraken_output/kraken_reads
+grep "Homo sapiens" results/kraken_output/kraken_reads/*report \
+> human_reads.txt
+grep "Mammalia"  results/kraken_output/kraken_reads/*report \
+> mammals_reads.txt
 ```
 
 ```bash
