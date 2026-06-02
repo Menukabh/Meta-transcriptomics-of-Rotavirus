@@ -80,8 +80,8 @@ for fastq in menuka_metatrans/results/trimmomatic/paired/*.fastq.gz; do
 done
 
 sbatch menuka_metatrans/scripts/multiqc.sh \
-    menuka_metatrans/results/fastqc_trimmomatic \
-    menuka_metatrans/results/multiqc_trimmomatic
+    menuka_metatrans/results/qc/fastqc_trimmomatic \
+    menuka_metatrans/results/qc/multiqc_trimmomatic
 
 # Trimgalore: To remove polyGs, and N
 # the sequences still contains lots of Ns and polyGs so remove polyG first using the trimgalore
@@ -169,7 +169,9 @@ for contigs in menuka_metatrans/results/viral_contigs/*.fasta;do
 done
 
 # To get the stats of the contigs
-apptainer exec $container seqkit stats $outdir/AN_01_contigs.fasta
+container=oras://community.wave.seqera.io/library/seqkit:2.13.0--205358a3675c7775
+apptainer exec $container seqkit stats $outdir/*.fasta \
+> menuka_metatrans/results/seqkit_viral_contigs_stats.txt
 ```
 
 **5.** BlAST
@@ -197,7 +199,7 @@ apptainer exec "$cont" blastdbcmd \
   -entry all \
   -outfmt "%a\t%t" > all_viral_names.tsv
 
-# Find out the rota virus presentr in it
+# Find out the rota virus present in it
 grep "rota" all_viral_names.tsv > rota.tsv
 # use grep to look for the ID that matches between your sample and database
 grep -Ff AN_01.txt all_viral_names.tsv > virus_names.tsv
@@ -208,12 +210,12 @@ grep -Ff AN_01.txt all_viral_names.tsv > virus_names.tsv
 # Run Bowtie2, to map reads to the reference virus genome, this will give counts of reads per virus
 # Initial plan was to Use GCA_003087295.1 for RotaC becuase it has more contigsN50 and GCA_002660075.1 for RotaA becuase it was the published in 2017 and have more contigsN50 but later decided to use all Rota genome available in NCBI
 
-A. Activate Conda env to download all the Rata genome from NCBI
+A. Activate Conda env to download all the Rota genome from NCBI
 datasets download virus genome taxon 28875 --filename rotavirus_data.zip
 sbatch menuka_metatrans/scripts/download_genome_NCBI.sh
 unzip menuka_metatrans/data/NCBI_rota_genome/rotavirus_data.zip
 
-## Fix the header name of the fasta file its giving an error to create the blast database fo Rota genome
+## Fix the header name of the fasta file its giving an error to create the blast database for Rota genome
 grep ">" ncbi_dataset/data/genomic.fna >ncbi_dataset/data/rota_virus.tsv
 
 sed '/^>/s/ .*//' ncbi_dataset/data/genomic.fna \
@@ -228,7 +230,7 @@ db_name=menuka_metatrans/results/rota_db/NCBI_rota_genome
 out_file=menuka_metatrans/results/blast_NCBI_rota
 
 # Select the results with identity percentage > 80
-for fasta in menuka_metatrans/results/viral_contigs/*.fasta;do
+for fasta in menuka_metatrans/results/seqkit/*.fasta;do
 sample_ID=$(basename $fasta _contigs.fasta)
 sbatch menuka_metatrans/scripts/blast.sh "$fasta" "$db_name" "$out_file/$sample_ID.tsv"
 done
@@ -245,7 +247,7 @@ cut -f2 menuka_metatrans/results/blast_NCBI_rota/*.tsv \
   | sort -u > menuka_metatrans/results/blast_NCBI_rota/rotavirus.txt
 
 D. Extract the viral genome from your reference FASTA
-# The fasta file is needed to align the reads to the genome
+# The fasta file needs to align the reads to the genome
 ref_seq=ncbi_dataset/data/genomic.fna # this contains old id
 ref_fasta=ncbi_dataset/data/new_rotavirus.fna # this conatins new id
 less $ref_fasta
@@ -257,19 +259,18 @@ apptainer exec $container seqkit grep -f menuka_metatrans/results/blast_NCBI_rot
 
 grep ">" menuka_metatrans/results/blast_NCBI_rota/rota_genomes.fna | wc -l
 
-E. Use Bowtie2 to map the viral reads to the Rota virus genome to get the depth
+E. Use Bowtie2 to map the contigs to the Rota virus genome to get the depth
 # Run Bowtie2 to map reads to reference
 # First you need to build the Bowtie2 index for the reference genome to efficiently map reads to reference genome
 sbatch menuka_metatrans/scripts/bowtie2.sh
 
-# Run Bowtie2 for mapping reads to reference
+# Run Bowtie2 to map reads to reference rota genome
 # Map reads to index - produce BAM : how many reads mapped to each rota virus, then sort/order the alignment by their genomic coordinates position
 outdir=menuka_metatrans/results/bowties2_mapping_rota
-
 for R1 in menuka_metatrans/results/kraken_output/kraken_viral_reads/*_1.fastq; do
 R2="${R1/_1.fastq/_2.fastq}"
 sample_Id=$(basename "$R1" _1.fastq)
-sbatch menuka_metatrans/scripts/bowtie2_mapping.sh "$R1" "$R2" "$outdir"/"$sample_Id".sorted.bam
+sbatch menuka_metatrans/scripts/bowtie2_mapping_reads.sh "$R1" "$R2" "$outdir"/"$sample_Id".sorted.bam
 done
 
 F. Count reads per rotavirus 
@@ -289,6 +290,11 @@ for bam in menuka_metatrans/results/bowties2_mapping_rota/*.sorted.bam;do
     > menuka_metatrans/results/rotavirus_counts_BAM/$sample.viral_counts.tsv
 done
 
+# Get the coverage of reads
+container=oras://community.wave.seqera.io/library/samtools:1.21--84c9d77c3901e90b
+apptainer exec $container samtools coverage results/bowties2_mapping_rota/AN_01.sorted.bam \
+> coverage_reads.txt
+
 # Combine the counts of each Rota virus mapping to individual sample type in R
 # Find out the reads mapping to host or pigs, Stephanie suggested that finding reads mapping to human would work
 menuka_metatrans/results/kraken_output/kraken_reads
@@ -296,6 +302,21 @@ grep "Homo sapiens" results/kraken_output/kraken_reads/*report \
 > human_reads.txt
 grep "Mammalia"  results/kraken_output/kraken_reads/*report \
 > mammals_reads.txt
+```
+
+G. Extract the reads mapping to the rota genome and assemble each reads using spades or metaspades
+```bash
+infile=results/bowties2_mapping_rota/AN_01.sorted.bam
+outfile=results/reads_mapping_rota/AN_01.sorted.bam
+sbatch scripts/samtools.sh "$infile" "$outfile"
+apptainer exec $container samtools view "$infile" | head
+# Convert the bam file to the fastq file using Samtools
+apptainer exec $container samtools fastq --help
+apptainer exec $container samtools fastq AN_01.sorted.bam \
+  -1 read1.fastq.gz \
+  -2 read2.fastq.gz \
+  -0 /dev/null \
+  -s /dev/null
 ```
 
 ```bash

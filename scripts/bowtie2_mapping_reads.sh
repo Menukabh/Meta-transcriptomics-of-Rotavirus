@@ -21,7 +21,7 @@ echo "R1 file: $R1"
 echo "R2 file: $R2"
 echo "Output file: $outfile"
 
-echo "Started script for bowtie2 for mapping raw reads to viral genome"
+echo "Started script for bowtie2 to map viral reads to rota genome"
 date
 
 ## Run Bowties2
@@ -33,5 +33,5 @@ apptainer exec "$CONTAINER" bowtie2 \
 -2 "$R2" \
 | apptainer exec "$samtools" samtools sort -@ 4 -o "$outfile"
 
-echo "Successfully Ran bowtie2 for mapping raw reads to viral genome"
+echo "Successfully Ran bowtie2 map viral reads to rota genome"
 date

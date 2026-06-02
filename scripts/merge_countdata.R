@@ -50,7 +50,6 @@ virus_info$gene[grepl("NSP5", virus_info$description)] <- "NSP5"
 
 
 #virus_info$accession <- gsub("^>", "", virus_info$accession)
-
 merged <- counts %>%
   left_join(virus_info, by = "accession")
 
@@ -59,3 +58,20 @@ write_xlsx(merged, "rota_count_blast.xlsx")
 # Select the ones that belongs to porcine
 porcine <- merged %>%
   filter(grepl("Porcine", description))
+
+#################################################################
+# Separate the multiple genotypes G, P's and I
+data <- read_excel("rota_count_blast.xlsx")
+
+data$G <- sub("([a-zA-Z]+)([0-9]+).*", 
+              "\\1\\2", data$genotype)
+data$P <- str_extract(data$genotype, "P[0-9]+")
+data$I <- str_extract(data$genotype, "I[0-9]+")
+data <- data |> 
+  mutate(gvalue = str_extract_all(data$genotype, "G\\d+"))
+data$G2 <- sapply(b$gvalue, `[`, 2)
+data$G3 <- sapply(b$gvalue, `[`, 3)
+data <- data |> 
+  select(!gvalue)
+
+write_xlsx(data, "rota_genotype_separated.xlsx")
