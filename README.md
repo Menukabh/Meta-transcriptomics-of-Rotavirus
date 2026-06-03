@@ -6,6 +6,7 @@
 # Building standard database took lot of time and failed at the end.
 kraken_stan=https://genome-idx.s3.amazonaws.com/kraken/k2_standard_20251015.tar.gz
 output_directory=/fs/scratch/PAS0471/menuka/kraken_stnd_db
+mkdir "$output_directory"
 ls "$output_directory"
 sbatch scripts/build_standard_kraken_db.sh "$kraken_stan" "$output_directory"
 
@@ -110,6 +111,68 @@ for R1_fastq in menuka_metatrans/results/trimgalore/*_1.fq.gz; do
   "$outfile/$sample_ID.report" "$R1_fastq" "$R2" 
 done
 
+# Install KronaTools to create plot for the kraken output
+module load miniconda3/24.1.2-py310
+conda create -p /fs/ess/PAS0471/condaenv_database_Menuka/krona -c bioconda -c conda-forge krona
+conda activate /fs/ess/PAS0471/condaenv_database_Menuka/krona
+which ktImportTaxonomy
+# To learn about the program
+ktImportTaxonomy
+outdir=results/krona_fig
+
+for kraken_report in scripts/krona_plot.sh results/kraken_output/kraken_reads/*.report;do
+sample_id=$(basename $kraken_report .report)
+sbatch scripts/krona_plot.sh $kraken_report $outdir/$sample_id.html
+done
+
+# Extract host reads: AN,AR reads mapping to primates, CR and CN: reads mapping to pig
+grep "Homo sapiens" results/kraken_output/kraken_reads/*.report \
+> results/kraken_output/kraken_reads_stats/reads_mapping_humans.txt
+
+grep "Primates" results/kraken_output/kraken_reads/*.report \
+> results/kraken_output/kraken_reads_stats/reads_mapping_primates.txt
+
+# Check if the organisms of interest are present in the standard database of Kraken- Chlorocebus sabaeus(60711) and Sus scrofa(9823)
+kraken_cont=oras://community.wave.seqera.io/library/kraken2:2.17.1--1738c34504f3fb18
+kraken_db="/fs/scratch/PAS0471/menuka/kraken_stnd_db"
+# Check at the taxonomy level
+grep -i "Sus scrofa" $kraken_db/names.dmp
+grep -i "Chlorocebus sabaeus" $kraken_db/names.dmp
+# Check if the sequences are present using the taxid, first check for humans and then others
+awk '$2 == 9606' $kraken_db/seqid2taxid.map | head
+awk '$2 == 60711' $kraken_db/seqid2taxid.map | head
+awk '$2 == 9823' $kraken_db/seqid2taxid.map | head
+# It looks like Chlorocebus sabaeus and Sus scrofa sequences were not present, add these two sequences in your standard database and run kraken, Download the reference sequence from NCBI and create the custom database of the two genomes and run kraken
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/047/675/955/GCF_047675955.1_mChlSab1.0.hap1/GCF_047675955.1_mChlSab1.0.hap1_genomic.fna.gz -P data/chlorocebus_sabaeus
+gunzip data/chlorocebus_sabaeus/GCF_047675955.1_mChlSab1.0.hap1_genomic.fna.gz
+wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/003/025/GCA_000003025.7_T2T-Sscrofa/GCA_000003025.7_T2T-Sscrofa_genomic.fna.gz -P data/sus_scrofa
+gunzip data/sus_scrofa/GCA_000003025.7_T2T-Sscrofa_genomic.fna.gz
+DB=/fs/scratch/PAS0471/menuka/kraken_host_db
+output_directory=/fs/scratch/PAS0471/menuka/kraken_stnd_db
+kraken_sdb="/fs/scratch/PAS0471/menuka/kraken_stnd_db"
+mkdir -p $DB
+# Copy the taxonomy from your existing standard database
+mkdir -p $DB/taxonomy
+cp $kraken_sdb/names.dmp $DB/taxonomy/names.dmp
+cp $kraken_sdb/nodes.dmp $DB/taxonomy/nodes.dmp
+
+apptainer exec $kraken_cont kraken2-build \
+  --add-to-library data/chlorocebus_sabaeus/Chlorocebus_sabaeus_taxid60711.fna \
+  --db $kraken_db \
+  --no-masking
+
+# Build the kraken database now
+sbatch scripts/kraken_db_build.sh
+
+# Run kraken using the custom database - to find the number of reads mapping to the hosts
+outfile=results/kraken_output/kraken_reads_inc_host_seq
+for R1_fastq in results/trimgalore/*_1.fq.gz; do
+  sample_ID=$(basename "$R1_fastq" _1_val_1.fq.gz)
+  R2=${R1_fastq/_1_val_1.fq.gz/_2_val_2.fq.gz}
+  sbatch scripts/kraken.sh "$outfile/$sample_ID.out" \
+  "$outfile/$sample_ID.report" "$R1_fastq" "$R2" 
+done
+
 # Extract viral reads using krakentools- 10239 id of viruses
 # Clone the krakentool repo
 git clone https://github.com/jenniferlu717/KrakenTools.git
@@ -137,8 +200,11 @@ for R1_fastq in menuka_metatrans/results/trimgalore/*1_val_1.fq.gz; do
   "$viral_reads"/"$sample_ID"_1.fastq "$viral_reads"/"$sample_ID"_2.fastq
 done 
 
-grep "reads printed to file" slurm* \
-> total_viral_reads.out
+grep "reads printed to file" results/logs/kraken_viral_reads/slurm* \
+> results/kraken_output/kraken_reads_stats/total_viral_reads.txt
+grep "10239" results/kraken_output/kraken_reads/*.report \
+> results/kraken_output/kraken_reads_stats/total_viral_reads_kraken.txt
+
 # Since lots of our viral reads are less than 100k, we will not do the normalization
 ```
 
@@ -190,7 +256,7 @@ sbatch menuka_metatrans/scripts/blast.sh "$contigs" "$db_name" "$blast"/"$sample
 done
 
 # Find out which virus each blast results corresponds to
-cut -f2 menuka_metatrans/results/blast_viral_contigs/AN_01.tsv | sort -u >AN_01.txt
+cut -f2 results/blast_viral_contigs/AN_01.tsv | sort -u >AN_01.txt
 head AN_01.txt
 
 # Get the full list of the viral seqeunce present in your database
@@ -216,7 +282,10 @@ sbatch menuka_metatrans/scripts/download_genome_NCBI.sh
 unzip menuka_metatrans/data/NCBI_rota_genome/rotavirus_data.zip
 
 ## Fix the header name of the fasta file its giving an error to create the blast database for Rota genome
-grep ">" ncbi_dataset/data/genomic.fna >ncbi_dataset/data/rota_virus.tsv
+grep ">" ncbi_dataset/data/genomic.fna > ncbi_dataset/data/rota_virus.tsv
+wc -l ncbi_dataset/data/rota_virus.tsv
+head -n 100 ncbi_dataset/data/rota_virus.tsv
+grep "complete" ncbi_dataset/data/rota_virus.tsv | wc -l
 
 sed '/^>/s/ .*//' ncbi_dataset/data/genomic.fna \
 > ncbi_dataset/data/new_rotavirus.fna
@@ -297,11 +366,7 @@ apptainer exec $container samtools coverage results/bowties2_mapping_rota/AN_01.
 
 # Combine the counts of each Rota virus mapping to individual sample type in R
 # Find out the reads mapping to host or pigs, Stephanie suggested that finding reads mapping to human would work
-menuka_metatrans/results/kraken_output/kraken_reads
-grep "Homo sapiens" results/kraken_output/kraken_reads/*report \
-> human_reads.txt
-grep "Mammalia"  results/kraken_output/kraken_reads/*report \
-> mammals_reads.txt
+
 ```
 
 G. Extract the reads mapping to the rota genome and assemble each reads using spades or metaspades
