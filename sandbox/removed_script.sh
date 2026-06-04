@@ -148,5 +148,19 @@ blastdbcmd -db $db_name -entry all | head -50
 blastdbcmd -db $db_name -entry all | grep "-"
 grep -v "^>" query.fasta | grep -n "[^ACGTNacgtn]"
 
+## Run QUAST and BUSCO to pick the best genome out of three rotavirus C genome
+# Run quast
+outdir=menuka_metatrans/results/quast
+for fasta in menuka_metatrans/data/rotavirus_C_reference/GCA*; do
+sample_ID=$(basename $fasta _genomic.fna.gz)
+sbatch menuka_metatrans/scripts/quast.sh "$fasta" "$outdir"/$sample_ID
+done
+
+## Run BUSCO
+Get all genomes of Rotavirus
+for url in $(cat ftp_links.txt); do
+    wget "${url}*_genomic.fna.gz"
+done
+
 
 

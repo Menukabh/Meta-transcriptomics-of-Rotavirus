@@ -370,11 +370,13 @@ apptainer exec $container samtools coverage results/bowties2_mapping_rota/AN_01.
 ```
 
 G. Extract the reads mapping to the rota genome and assemble each reads using spades or metaspades
+
 ```bash
 infile=results/bowties2_mapping_rota/AN_01.sorted.bam
 outfile=results/reads_mapping_rota/AN_01.sorted.bam
 sbatch scripts/samtools.sh "$infile" "$outfile"
 apptainer exec $container samtools view "$infile" | head
+
 # Convert the bam file to the fastq file using Samtools
 apptainer exec $container samtools fastq --help
 apptainer exec $container samtools fastq AN_01.sorted.bam \
@@ -384,18 +386,3 @@ apptainer exec $container samtools fastq AN_01.sorted.bam \
   -s /dev/null
 ```
 
-```bash
-## Run QUAST and BUSCO to pick the best genome out of three rotavirus C genome
-# Run quast
-outdir=menuka_metatrans/results/quast
-for fasta in menuka_metatrans/data/rotavirus_C_reference/GCA*; do
-sample_ID=$(basename $fasta _genomic.fna.gz)
-sbatch menuka_metatrans/scripts/quast.sh "$fasta" "$outdir"/$sample_ID
-done
-
-## Run BUSCO
-Get all genomes of Rotavirus
-for url in $(cat ftp_links.txt); do
-    wget "${url}*_genomic.fna.gz"
-done
-```
