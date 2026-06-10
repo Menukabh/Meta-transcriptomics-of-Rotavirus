@@ -142,12 +142,12 @@ grep -i "Chlorocebus sabaeus" $kraken_db/names.dmp
 awk '$2 == 9606' $kraken_db/seqid2taxid.map | head
 awk '$2 == 60711' $kraken_db/seqid2taxid.map | head
 awk '$2 == 9823' $kraken_db/seqid2taxid.map | head
-# It looks like Chlorocebus sabaeus and Sus scrofa sequences were not present, add these two sequences in your standard database and run kraken, Download the reference sequence from NCBI and create the custom database of the two genomes and run kraken
+# It looks like Chlorocebus sabaeus and Sus scrofa sequences were not present, Download the reference sequence from NCBI and create the custom database of the two genomes and run kraken
 wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/047/675/955/GCF_047675955.1_mChlSab1.0.hap1/GCF_047675955.1_mChlSab1.0.hap1_genomic.fna.gz -P data/chlorocebus_sabaeus
 gunzip data/chlorocebus_sabaeus/GCF_047675955.1_mChlSab1.0.hap1_genomic.fna.gz
 wget https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/003/025/GCA_000003025.7_T2T-Sscrofa/GCA_000003025.7_T2T-Sscrofa_genomic.fna.gz -P data/sus_scrofa
 gunzip data/sus_scrofa/GCA_000003025.7_T2T-Sscrofa_genomic.fna.gz
-DB=/fs/scratch/PAS0471/menuka/kraken_host_db
+DB=/fs/scratch/PAS0471/menuka/kraken_host_db_metatrans
 output_directory=/fs/scratch/PAS0471/menuka/kraken_stnd_db
 kraken_sdb="/fs/scratch/PAS0471/menuka/kraken_stnd_db"
 mkdir -p $DB
@@ -155,10 +155,28 @@ mkdir -p $DB
 mkdir -p $DB/taxonomy
 cp $kraken_sdb/names.dmp $DB/taxonomy/names.dmp
 cp $kraken_sdb/nodes.dmp $DB/taxonomy/nodes.dmp
+# If you do not fix your fasta name it will give you an error that accession to taxid not found becasue kraken2 
+# only reads the sequence ID before the first space, put the taxid after accession before the first space.
+awk '/^>/ {
+  sub(/^>/, "")
+  split($0, a, " ")
+  taxid=9823
+  rest=$0
+  sub(a[1], "", rest)
+  print ">" a[1] "|kraken:taxid|" taxid rest
+  next
+} {print}' data/sus_scrofa/Sus_scrofa_taxid9823.fna \
+> data/sus_scrofa/Sus_scrofa_kraken_fixed_taxid9823.fna
 
+# Add the fasta file
 apptainer exec $kraken_cont kraken2-build \
-  --add-to-library data/chlorocebus_sabaeus/Chlorocebus_sabaeus_taxid60711.fna \
-  --db $kraken_db \
+  --add-to-library data/sus_scrofa/Sus_scrofa_kraken_fixed_taxid9823.fna \
+  --db $DB \
+  --no-masking
+
+apptainer exec "$kraken_cont" kraken2-build \
+  --add-to-library data/chlorocebus_sabaeus/Chlorocebus_sabaeus_kraken_fixed_taxid60711.fna \
+  --db "$DB" \
   --no-masking
 
 # Build the kraken database now
@@ -370,19 +388,51 @@ apptainer exec $container samtools coverage results/bowties2_mapping_rota/AN_01.
 ```
 
 G. Extract the reads mapping to the rota genome and assemble each reads using spades or metaspades
-
 ```bash
-infile=results/bowties2_mapping_rota/AN_01.sorted.bam
-outfile=results/reads_mapping_rota/AN_01.sorted.bam
-sbatch scripts/samtools.sh "$infile" "$outfile"
+outdir=results/rota/reads_mapping_rota
+for bam_file in results/rota/bowties2_mapping_rota/*.bam;do
+sample_id=$(basename $bam_file)
+sbatch scripts/samtools.sh "$bam_file" "$outdir"/"$sample_id"
+done
 apptainer exec $container samtools view "$infile" | head
 
 # Convert the bam file to the fastq file using Samtools
-apptainer exec $container samtools fastq --help
-apptainer exec $container samtools fastq AN_01.sorted.bam \
-  -1 read1.fastq.gz \
-  -2 read2.fastq.gz \
-  -0 /dev/null \
-  -s /dev/null
+outdir=results/rota/rotafastq
+for bam_file in results/rota/reads_mapping_rota/*.bam;do
+sample_id=$(basename "$bam_file" .sorted.bam)
+sbatch scripts/samtool_reads_fastq.sh "$bam_file" "$outdir"/"$sample_id"_1.fastq.gz \
+"$outdir"/"$sample_id"_2.fastq.gz "$outdir"/"$sample_id"_singletons.fastq.gz 
+done
+mv slurm* results/logs/samtool_bamfile_fastq
+
+# Run metaspades - Assemble rota reads to contigs using metaspades, which is part of the spades toolkit
+outdir=results/rota/metaspades_rota_contigs
+for R1 in results/rota/rotafastq/*_1.fastq.gz; do
+    R2=${R1/_1.fastq.gz/_2.fastq.gz}
+    sample_ID=$(basename "$R1" _1.fastq.gz)
+    sbatch scripts/metaspades.sh "$R1" "$R2" results/rota/rotafastq/"$sample_ID"_singletons.fastq.gz "$outdir"/"$sample_ID"
+done
+mv slurm* results/logs/rota_contigs
+
+## Copy all the contigs in the same folder and add the sampleID to each of them
+for sample_name in results/rota/metaspades_rota_contigs/*; do
+  sample=$(basename "$sample_name")
+  cp "$sample_name"/contigs.fasta \
+  results/rota/rota_contigs/"$sample"_contigs.fasta
+done
+
+# Use seqkit to filter the contigs less than 300bp
+outdir=results/rota/seqkit_contigs300bp
+for contigs in results/rota/rota_contigs/*.fasta;do
+    sample_ID=$(basename "$contigs" )
+    sbatch scripts/seqkit.sh "$contigs" "$outdir"/"$sample_ID"
+done
+
+# Run seqkit to get the stats of the contigs
+container=oras://community.wave.seqera.io/library/seqkit:2.13.0--205358a3675c7775
+apptainer exec $container seqkit stats results/rota/seqkit_contigs300bp/*_contigs.fasta \
+> results/seqkit_rota_contigs_stats.txt
+apptainer exec $container seqkit stats results/rota/rota_contigs/AR_08_contigs.fasta
+apptainer exec $container seqkit stats results/rota/rota_contigs/CN_01_contigs.fasta
 ```
 
