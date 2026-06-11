@@ -162,5 +162,19 @@ for url in $(cat ftp_links.txt); do
     wget "${url}*_genomic.fna.gz"
 done
 
+## Fix the file name of the host genome becuase it was giving issue in constructing custom database
+# of Kraken
+awk '/^>/ {
+  sub(/^>/, "")
+  split($0, a, " ")
+  taxid=60711
+  rest=$0
+  sub(a[1], "", rest)
+  print ">" a[1] "|kraken:taxid|" taxid rest
+  next
+} {print}' \
+data/chlorocebus_sabaeus/Chlorocebus_sabaeus_taxid60711.fna \
+> data/chlorocebus_sabaeus/Chlorocebus_sabaeus_kraken_fixed_taxid60711.fna
+
 
 

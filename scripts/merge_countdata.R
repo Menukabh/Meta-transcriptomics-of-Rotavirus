@@ -150,8 +150,102 @@ blast_hits_rota <- blast_hits |>
 write_xlsx(blast_hits_rota , "outer_capside_protein.xlsx")
 
 ######################################################################
+######################################################################
+# Perfrom additional filtering as suggested by Vlasova team
+# Filter data with the alignment length > 550bp and coverage to 50%
+blast_550bp <- blast_data |> 
+  filter(length > 550) 
 
+blast_550_cov <- blast_550bp |> 
+  filter(qcovs > 50) 
 
+length(unique(blast_550bp$sample_id))
+length(unique(blast_550_cov$sample_id))
+unique(blast_550_cov$sample_id)
+# Combine this data with the virus name
+blast_hits <- blast_550_cov %>%
+  left_join(virus_info, by = "accession")
+
+unique(blast_hits$rotavirus)
+
+# Select only the pig or porcine rota hits
+porcine_rota <- blast_hits |> 
+  filter(grepl("porcine|pig", description, ignore.case = TRUE))
+
+length(unique(porcine_rota$sample_id))
+
+write_xlsx(porcine_rota, "menuka_metatrans/results/blast_NCBI_rota/blast_hits_ali550_cov50.xlsx")
+
+# Find the type of rota virus present in each sample
+sample_rota_type <- porcine_rota |> 
+  group_by(sample_id) |>  
+  summarise(unique_rota = paste(unique(rotavirus), collapse = ", "))
+
+sample_rota_counts_wide <- porcine_rota |>
+  count(sample_id, rotavirus) |>
+  pivot_wider(
+    names_from = rotavirus,
+    values_from = n,
+    values_fill = 0)
+write_xlsx(sample_rota_counts_wide, "rota_vir_count_sample.xlsx")
+
+# Find the range of the alignment length in each sample
+alignment_length_range <- porcine_rota |>
+  group_by(sample_id) |> 
+  summarise(
+    min_length = min(length, na.rm = TRUE),
+    max_length = max(length, na.rm = TRUE),
+    range_length = max(length, na.rm = TRUE) - min(length, na.rm = TRUE),
+    .groups = "drop")
+write_xlsx(alignment_length_range, 
+           "menuka_metatrans/results/blast_NCBI_rota/alignment_550bp_cov_50/ali_length_range.xlsx")
+
+## Get the genotype
+genotype_counts_wide <- porcine_rota |>
+  count(sample_id, genotype) |>
+  pivot_wider(
+    names_from = genotype,
+    values_from = n,
+    values_fill = 0)
+
+write_xlsx(genotype_counts_wide, 
+           "menuka_metatrans/results/blast_NCBI_rota/alignment_550bp_cov_50/genotype_counts.xlsx")
+
+##########################################################
+#################################################################
+# Separate the multiple genotypes G, P's and I
+data <- read_excel("blast_hits_summary.xlsx")
+
+data$G <- sub("([a-zA-Z]+)([0-9]+).*", 
+              "\\1\\2", data$genotype)
+data$P <- str_extract(data$genotype, "P[0-9]+")
+data$I <- str_extract(data$genotype, "I[0-9]+")
+write_xlsx(data, "rota_blast_genotype_separated.xlsx")
+
+data <- data |> 
+  mutate(gvalue = str_extract_all(data$genotype, "G\\d+"))
+data$G2 <- sapply(data$gvalue, `[`, 2)
+
+data$G2 <- sapply(b$gvalue, `[`, 2)
+data$G3 <- sapply(b$gvalue, `[`, 3)
+data <- data |> 
+  select(!gvalue)
+
+write_xlsx(data, "rota_blast_genotype_separated.xlsx")
+
+###################################################
+# Now group by samples and see what are the different types of rota each sample has
+blast_hits_rota_count <- data |> 
+  group_by(sample_id) |>  
+  summarise(n_unique_rota = n_distinct(gene))
+
+blast_hits_rota <- blast_hits |> 
+  group_by(sample_id) |>  
+  summarise(unique_rota = paste(unique(gene), collapse = ", "))
+
+write_xlsx(blast_hits_rota , "outer_capside_protein.xlsx")
+
+######################################################################
 
 
 
