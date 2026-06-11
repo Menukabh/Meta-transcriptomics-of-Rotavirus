@@ -1,5 +1,18 @@
-# Separate the bacterial reads using kraken and run the metapro
-<https://github.com/ParkinsonLab/MetaPro>
+## Steps in analysis of metatranscriptome data
+1.	Fastqc
+2.	MultiQC
+3.	Trimmomatic- multiqc
+4.	Trimgalore to remove polyGs and Ns followed by multiQC
+5.	Kraken to classify reads belonging to host and remove host reads
+6.	Kraken to classify and extract viral reads, kraken tools to extract viral reads
+7.	Assemble viral reads to contigs using metaspades, filter contigs less than 300bp and get the stats of the contigs using seqkit
+8.	Steps in identifying Rota genome – Download all the rota genome from NCBI, create a blast database and blast viral assembly against the Rota database
+9.	Check the number of the rota virus detected in blast hits and extract the fasta sequence from the reference fasta file of rota using seqkit
+10.	Run Bowties2 to map the viral reads to the reference fasta of rota (detected in BLAST hits)
+11.	Extract the reads mapping to the rota genome using Samtools and run metaspades to assemble the reads to the contigs.
+
+
+- Separate the bacterial reads using kraken and run the metapro <https://github.com/ParkinsonLab/MetaPro>
 
 ```bash
 # Build kraken database
@@ -338,8 +351,8 @@ done
 cut -f2 menuka_metatrans/results/blast_NCBI_rota/*.tsv \
   | sort -u > menuka_metatrans/results/blast_NCBI_rota/rotavirus.txt
 
-D. Extract the viral genome from your reference FASTA
-# The fasta file needs to align the reads to the genome
+D. Extract the viral genome from your reference FASTA of rota
+# The fasta file is needed to align the reads to the genome
 ref_seq=ncbi_dataset/data/genomic.fna # this contains old id
 ref_fasta=ncbi_dataset/data/new_rotavirus.fna # this conatins new id
 less $ref_fasta
@@ -352,11 +365,11 @@ apptainer exec $container seqkit grep -f menuka_metatrans/results/blast_NCBI_rot
 grep ">" menuka_metatrans/results/blast_NCBI_rota/rota_genomes.fna | wc -l
 
 E. Use Bowtie2 to map the contigs to the Rota virus genome to get the depth
-# Run Bowtie2 to map reads to reference
+# Run Bowtie2 to map reads to reference fasta seqeunce of rota that you extracted above
 # First you need to build the Bowtie2 index for the reference genome to efficiently map reads to reference genome
 sbatch menuka_metatrans/scripts/bowtie2.sh
 
-# Run Bowtie2 to map reads to reference rota genome
+# Run Bowtie2 to map viral reads to reference rota genome ( ones detected in BLAST)
 # Map reads to index - produce BAM : how many reads mapped to each rota virus, then sort/order the alignment by their genomic coordinates position
 outdir=menuka_metatrans/results/bowties2_mapping_rota
 for R1 in menuka_metatrans/results/kraken_output/kraken_viral_reads/*_1.fastq; do
@@ -388,7 +401,6 @@ apptainer exec $container samtools coverage results/bowties2_mapping_rota/AN_01.
 > coverage_reads.txt
 
 # Combine the counts of each Rota virus mapping to individual sample type in R
-# Find out the reads mapping to host or pigs, Stephanie suggested that finding reads mapping to human would work
 
 ```
 
@@ -440,4 +452,4 @@ apptainer exec $container seqkit stats results/rota/seqkit_contigs300bp/*_contig
 apptainer exec $container seqkit stats results/rota/rota_contigs/AR_08_contigs.fasta
 apptainer exec $container seqkit stats results/rota/rota_contigs/CN_01_contigs.fasta
 ```
-
+H. Additional analysis as suggested by Vlasova team: filter the blast output (alignment length > 500bp)
