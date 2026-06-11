@@ -182,14 +182,19 @@ apptainer exec "$kraken_cont" kraken2-build \
 # Build the kraken database now
 sbatch scripts/kraken_db_build.sh
 
+awk '$2 == 60711'  $DB/seqid2taxid.map | head
+awk '$2 == 9823' $DB/seqid2taxid.map | head
 # Run kraken using the custom database - to find the number of reads mapping to the hosts
-outfile=results/kraken_output/kraken_reads_inc_host_seq
+outfile=results/kraken_output/reads_mapping_host
 for R1_fastq in results/trimgalore/*_1.fq.gz; do
   sample_ID=$(basename "$R1_fastq" _1_val_1.fq.gz)
   R2=${R1_fastq/_1_val_1.fq.gz/_2_val_2.fq.gz}
   sbatch scripts/kraken.sh "$outfile/$sample_ID.out" \
   "$outfile/$sample_ID.report" "$R1_fastq" "$R2" 
 done
+
+# Get the numebr of seqqunces matching to the host
+grep "sequences classified" slurm* > results/kraken_output/kraken_reads_in_host_seq/host.txt
 
 # Extract viral reads using krakentools- 10239 id of viruses
 # Clone the krakentool repo

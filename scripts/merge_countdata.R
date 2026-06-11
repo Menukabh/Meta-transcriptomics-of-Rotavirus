@@ -115,15 +115,6 @@ length(unique(porcine_rota$sample_id))
 
 write_xlsx(porcine_rota, "blast_hits_summary.xlsx")
 
-# Now group by samples and see what are the different types of rota each sample has
-blast_hits_rota_count <- porcine_rota |> 
-  group_by(sample_id) |>  
-  summarise(n_unique_rota = n_distinct(accession))
-
-blast_hits_rota <- blast_hits |> 
-  group_by(sample_id) |>  
-  summarise(unique_rota = paste(unique(accession), collapse = ", "))
-
 ##########################################################
 #################################################################
 # Separate the multiple genotypes G, P's and I
@@ -133,6 +124,8 @@ data$G <- sub("([a-zA-Z]+)([0-9]+).*",
               "\\1\\2", data$genotype)
 data$P <- str_extract(data$genotype, "P[0-9]+")
 data$I <- str_extract(data$genotype, "I[0-9]+")
+write_xlsx(data, "rota_blast_genotype_separated.xlsx")
+
 data <- data |> 
   mutate(gvalue = str_extract_all(data$genotype, "G\\d+"))
 data$G2 <- sapply(data$gvalue, `[`, 2)
@@ -144,10 +137,19 @@ data <- data |>
 
 write_xlsx(data, "rota_blast_genotype_separated.xlsx")
   
+###################################################
+# Now group by samples and see what are the different types of rota each sample has
+blast_hits_rota_count <- data |> 
+  group_by(sample_id) |>  
+  summarise(n_unique_rota = n_distinct(gene))
 
+blast_hits_rota <- blast_hits |> 
+  group_by(sample_id) |>  
+  summarise(unique_rota = paste(unique(gene), collapse = ", "))
 
+write_xlsx(blast_hits_rota , "outer_capside_protein.xlsx")
 
-
+######################################################################
 
 
 

@@ -12,7 +12,8 @@ kraken_cont=oras://community.wave.seqera.io/library/kraken2:2.17.1--1738c34504f3
 #mkdir -p menuka_metatrans/results/kraken_bacteria
 
 ## Define variables
-kraken_db="/fs/scratch/PAS0471/menuka/kraken_stnd_db"
+#kraken_db="/fs/scratch/PAS0471/menuka/kraken_stnd_db"
+kraken_db=/fs/scratch/PAS0471/menuka/kraken_host_db_metatrans
 echo "Using kraken2 standard database: $kraken_db"
 outfile=$1
 report=$2
